@@ -1,16 +1,19 @@
 [tools]
-tuist = "4"
+tuist = "latest"
 
 [tasks.setup]
 description = "Install dependencies and generate Xcode project"
-run = "tuist install && tuist generate"
+run = """
+tuist install
+tuist generate
+"""
 
 [tasks.generate]
 description = "Generate Xcode project"
 run = "tuist generate"
 
 [tasks.edit]
-description = "Open Tuist project for editing manifests"
+description = "Open Tuist manifests for editing"
 run = "tuist edit"
 
 [tasks.build]
@@ -23,7 +26,10 @@ run = "tuist test"
 
 [tasks.clean]
 description = "Clean build artifacts"
-run = "tuist clean"
+run = """
+tuist clean
+rm -rf *.xcodeproj *.xcworkspace Derived/
+"""
 
 [tasks.graph]
 description = "Generate dependency graph"

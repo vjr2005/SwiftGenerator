@@ -1,0 +1,47 @@
+name: Release Binary
+
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve tag
+        id: tag
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      # ── Build ──
+
+      - name: Build universal binary
+        run: make release
+
+      # ── Publish ──
+
+      - name: Create release with binary
+        run: |
+          gh release create "${{ steps.tag.outputs.version }}" \
+            build/universal/swift-generator.zip \
+            --title "${{ steps.tag.outputs.version }}" \
+            --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # ── Rollback on failure ──
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          TAG="${{ steps.tag.outputs.version }}"
+          echo "▸ Deleting release (if created)…"
+          gh release delete "${TAG}" --yes 2>/dev/null || true
+          echo "⚠ Rollback complete. Review the state before retrying."
+        env:
+          GH_TOKEN: ${{ github.token }}

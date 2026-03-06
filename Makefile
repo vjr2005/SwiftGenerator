@@ -10,7 +10,7 @@ bootstrap: ## First-time setup: install tools and generate project
 
 .PHONY: setup
 setup: ## Install dependencies and generate Xcode project
-	@tuist install && tuist generate
+	@mise exec -- tuist install && mise exec -- tuist generate
 
 # ───────────────────────────────────────────────────
 # Tuist
@@ -18,28 +18,28 @@ setup: ## Install dependencies and generate Xcode project
 
 .PHONY: generate
 generate: ## Generate Xcode project
-	@tuist generate
+	@mise exec -- tuist generate
 
 .PHONY: edit
 edit: ## Open Tuist manifests for editing
-	@tuist edit
+	@mise exec -- tuist edit
 
 .PHONY: build
 build: ## Build with Tuist
-	@tuist build
+	@mise exec -- tuist build
 
 .PHONY: test
 test: ## Run tests with Tuist
-	@tuist test
+	@mise exec -- tuist test
 
 .PHONY: clean
 clean: ## Clean build artifacts
-	@tuist clean
-	@rm -rf .build build
+	@mise exec -- tuist clean
+	@rm -rf .build build *.xcodeproj *.xcworkspace Derived/
 
 .PHONY: graph
 graph: ## Generate dependency graph
-	@tuist graph
+	@mise exec -- tuist graph
 
 # ───────────────────────────────────────────────────
 # Swift Package Manager
