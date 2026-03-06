@@ -56,22 +56,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Update Package.swift with checksum and version
-        run: |
-          TAG="${{ steps.tag.outputs.version }}"
-          CHECKSUM="${{ steps.checksum.outputs.value }}"
-          sed -i '' "s|let binaryChecksum = \".*\"|let binaryChecksum = \"${CHECKSUM}\"|" Package.swift
-          sed -i '' "s|releases/download/[^/]*/|releases/download/${TAG}/|" Package.swift
-
       - name: Commit checksum and retag
         run: |
           TAG="${{ steps.tag.outputs.version }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout main
+          git merge origin/main --no-edit
+          sed -i '' "s|let binaryChecksum = \".*\"|let binaryChecksum = \"${{ steps.checksum.outputs.value }}\"|" Package.swift
+          sed -i '' "s|releases/download/[^/]*/|releases/download/${TAG}/|" Package.swift
           git add Package.swift
           git commit -m "Set binary checksum for ${TAG} [skip ci]"
           git tag -fa "${TAG}" -m "Release ${TAG}"
-          git push origin HEAD:main
+          git push origin main
           git push origin "${TAG}" --force
 
       - name: Publish release
