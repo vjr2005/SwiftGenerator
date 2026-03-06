@@ -19,6 +19,7 @@ Tuist/ProjectDescriptionHelpers/*.generated.swift
 
 # Build artifacts
 build/
+Derived/
 *.zip
 
 # mise
