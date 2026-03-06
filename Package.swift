@@ -14,7 +14,7 @@ let packageSettings = PackageSettings(
 
 import PackageDescription
 
-let binaryChecksum = "PLACEHOLDER"
+let binaryChecksum = "fd9e79328f315c86e78f5cbec5da4212395f13e157e40adf20c77fbba259bd5b"
 
 var products: [Product] = [
 	.executable(name: "swift-generator", targets: ["SwiftGeneratorCLI"]),
