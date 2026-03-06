@@ -2,52 +2,57 @@ import Foundation
 import SwiftParser
 import SwiftSyntax
 
-/// Parses Swift source files and extracts protocols annotated with `// @mock`.
+/// Parses Swift source code and extracts metadata for protocols annotated with `// @mock`.
+///
+/// `ProtocolParser` is a pure transformation: it takes a Swift source string and produces
+/// an array of ``ProtocolMetadata`` values. It does **not** perform any file I/O — file
+/// reading and directory enumeration are the caller's responsibility (see ``FileSystem``).
+///
+/// ## Usage
+///
+/// ```swift
+/// let parser = ProtocolParser()
+///
+/// // Parse from a source string:
+/// let protocols = parser.parse(source: sourceCode, filePath: "/path/to/File.swift")
+///
+/// // Parse from an in-memory string (filePath defaults to "<in-memory>"):
+/// let protocols = parser.parse(source: sourceCode)
+/// ```
+///
+/// ## Annotation format
+///
+/// Only protocols preceded by a `// @mock` line comment are extracted. The annotation
+/// must appear in the leading trivia of the protocol declaration:
+///
+/// ```swift
+/// // @mock
+/// protocol FooContract: Sendable {
+///     func execute() async throws -> String
+/// }
+/// ```
 public struct ProtocolParser: Sendable {
+
+	/// Creates a new protocol parser.
 	public init() {}
 
-	/// Parses all `.swift` files in the given directories and returns annotated protocols.
-	public func parse(directories: [String]) throws -> [ProtocolMetadata] {
-		let fileManager = FileManager.default
-		var protocols: [ProtocolMetadata] = []
-
-		for directory in directories {
-			let files = try swiftFiles(in: directory, fileManager: fileManager)
-			for file in files {
-				let source = try String(contentsOfFile: file, encoding: .utf8)
-				let parsed = parse(source: source, filePath: file)
-				protocols.append(contentsOf: parsed)
-			}
-		}
-
-		return protocols
-	}
-
-	/// Parses a single Swift source string and returns annotated protocols.
+	/// Parses a Swift source string and returns metadata for all `// @mock`-annotated protocols.
+	///
+	/// The parser walks the syntax tree using SwiftSyntax, collecting import statements
+	/// and visiting protocol declarations. Only protocols whose leading trivia contains
+	/// a `// @mock` line comment are included in the result.
+	///
+	/// - Parameters:
+	///   - source: The Swift source code to parse.
+	///   - filePath: The path to the source file, stored in ``ProtocolMetadata/sourceFilePath``.
+	///     Defaults to `"<in-memory>"` when parsing from a string without a file context.
+	/// - Returns: An array of ``ProtocolMetadata`` for each annotated protocol found,
+	///   in source order. Returns an empty array if no annotated protocols are found.
 	public func parse(source: String, filePath: String = "<in-memory>") -> [ProtocolMetadata] {
 		let sourceFile = Parser.parse(source: source)
 		let visitor = ProtocolVisitor(filePath: filePath)
 		visitor.walk(sourceFile)
 		return visitor.protocols
-	}
-
-	private func swiftFiles(in directory: String, fileManager: FileManager) throws -> [String] {
-		let url = URL(fileURLWithPath: directory)
-		guard let enumerator = fileManager.enumerator(
-			at: url,
-			includingPropertiesForKeys: [.isRegularFileKey],
-			options: [.skipsHiddenFiles]
-		) else {
-			return []
-		}
-
-		var files: [String] = []
-		for case let fileURL as URL in enumerator {
-			if fileURL.pathExtension == "swift" {
-				files.append(fileURL.path)
-			}
-		}
-		return files.sorted()
 	}
 }
 
@@ -246,4 +251,3 @@ private final class ProtocolVisitor: SyntaxVisitor {
 		}
 	}
 }
-

@@ -36,6 +36,22 @@ struct ProtocolParserTests {
 		#expect(result[0].name == "FooContract")
 	}
 
+	@Test("Detects // @mock annotation before doc comment")
+	func detectsMockAnnotationBeforeDocComment() {
+		let source = """
+		// @mock
+		/// Doc comment for protocol.
+		protocol FooContract {
+			func bar()
+		}
+		"""
+
+		let result = sut.parse(source: source)
+
+		#expect(result.count == 1)
+		#expect(result[0].name == "FooContract")
+	}
+
 	@Test("Infers public access level from protocol declaration")
 	func infersPublicAccessLevel() {
 		let source = """
@@ -65,7 +81,7 @@ struct ProtocolParserTests {
 		let result = sut.parse(source: source)
 
 		#expect(result[0].pattern == .mainActor)
-		#expect(result[0].needsUncheckedSendable == false)
+		#expect(result[0].requiresSendable == false)
 	}
 
 	@Test("Infers mainActor pattern with Sendable inheritance")
@@ -80,7 +96,7 @@ struct ProtocolParserTests {
 		let result = sut.parse(source: source)
 
 		#expect(result[0].pattern == .mainActor)
-		#expect(result[0].needsUncheckedSendable == true)
+		#expect(result[0].requiresSendable == true)
 	}
 
 	@Test("Infers nonisolated pattern")
@@ -95,7 +111,7 @@ struct ProtocolParserTests {
 		let result = sut.parse(source: source)
 
 		#expect(result[0].pattern == .nonisolated)
-		#expect(result[0].needsUncheckedSendable == true)
+		#expect(result[0].requiresSendable == true)
 	}
 
 	@Test("Infers actor pattern")

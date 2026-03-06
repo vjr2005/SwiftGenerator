@@ -1,45 +1,118 @@
-import Foundation
-
-/// Generates mock source code from protocol metadata following Sourcery AutoMockable conventions.
+/// The main entry point for generating mock source code from protocol metadata.
+///
+/// `SwiftGenerator` orchestrates the generation pipeline: it computes mock names,
+/// emits the file header and import statements, then delegates the type-specific
+/// mock body to a ``MockEmitter`` selected by the protocol's ``MockPattern``.
+///
+/// ## Usage
+///
+/// ```swift
+/// let generator = SwiftGenerator(moduleName: "ChallengeCharacter")
+///
+/// // Generate mock source code:
+/// let sourceCode = generator.generate(from: protocolMetadata)
+///
+/// // Get the mock name for file naming:
+/// let name = generator.mockName(for: protocolMetadata) // e.g., "CharacterListTrackerMock"
+/// ```
+///
+/// ## Customization
+///
+/// - **Mock name suffixes**: By default, `"Contract"` and `"Delegate"` are stripped from
+///   the protocol name before appending `"Mock"`. Override via `mockNameSuffixes`.
+/// - **Custom emitters**: Supply a custom `emitters` dictionary to replace or extend
+///   the built-in emitters for each ``MockPattern``.
+///
+/// ## Generated file structure
+///
+/// Each generated file follows this layout:
+/// 1. Auto-generated header comment
+/// 2. `import Foundation` + source file imports
+/// 3. Module import (`@testable` for internal, plain for public)
+/// 4. Mock type declaration (delegated to the appropriate ``MockEmitter``)
 public struct SwiftGenerator: Sendable {
 	private let moduleName: String
+	private let mockNameSuffixes: [String]
+	private let emitters: [MockPattern: any MockEmitter]
 
-	public init(moduleName: String) {
+	/// Creates a new mock generator.
+	///
+	/// - Parameters:
+	///   - moduleName: The module name used in import statements (e.g., `"ChallengeCharacter"`).
+	///     For internal mocks, this appears as `@testable import <moduleName>`.
+	///     For public mocks, it appears as `import <moduleName>`.
+	///   - mockNameSuffixes: Suffixes to strip from protocol names when computing mock names.
+	///     Defaults to `["Contract", "Delegate"]`. Only the first matching suffix is stripped.
+	///     For example, `"FooTrackerContract"` becomes `"FooTrackerMock"`.
+	///   - emitters: A dictionary mapping each ``MockPattern`` to a ``MockEmitter`` implementation.
+	///     Pass `nil` (the default) to use the built-in emitters:
+	///     - ``MockPattern/mainActor`` → `ClassMockEmitter(nonisolated: false)`
+	///     - ``MockPattern/nonisolated`` → `ClassMockEmitter(nonisolated: true)`
+	///     - ``MockPattern/actor`` → `ActorMockEmitter()`
+	public init(
+		moduleName: String,
+		mockNameSuffixes: [String] = ["Contract", "Delegate"],
+		emitters: [MockPattern: any MockEmitter]? = nil
+	) {
 		self.moduleName = moduleName
+		self.mockNameSuffixes = mockNameSuffixes
+		self.emitters = emitters ?? [
+			.mainActor: ClassMockEmitter(nonisolated: false),
+			.nonisolated: ClassMockEmitter(nonisolated: true),
+			.actor: ActorMockEmitter(),
+		]
 	}
 
-	/// Generates the mock source file content for a protocol.
+	/// Computes the mock type name for a protocol.
+	///
+	/// Strips the first matching suffix from ``mockNameSuffixes`` and appends `"Mock"`.
+	/// If no suffix matches, `"Mock"` is appended to the full protocol name.
+	///
+	/// - Parameter proto: The protocol metadata to compute the name for.
+	/// - Returns: The generated mock name (e.g., `"CharacterListTrackerMock"`).
+	///
+	/// ## Examples
+	///
+	/// | Protocol name                   | Mock name                    |
+	/// |---------------------------------|------------------------------|
+	/// | `CharacterListTrackerContract`  | `CharacterListTrackerMock`   |
+	/// | `NavigationDelegate`            | `NavigationMock`             |
+	/// | `DataStore`                     | `DataStoreMock`              |
+	public func mockName(for proto: ProtocolMetadata) -> String {
+		var baseName = proto.name
+		for suffix in mockNameSuffixes {
+			if baseName.hasSuffix(suffix) {
+				baseName = String(baseName.dropLast(suffix.count))
+				break
+			}
+		}
+		return baseName + "Mock"
+	}
+
+	/// Generates the complete mock source file content for a protocol.
+	///
+	/// The output includes the file header, import statements, and the full mock type
+	/// declaration with all tracking properties, method implementations, and the `reset()` method.
+	///
+	/// - Parameter proto: The protocol metadata to generate a mock for.
+	/// - Returns: The generated Swift source code as a string, ready to be written to a `.swift` file.
 	public func generate(from proto: ProtocolMetadata) -> String {
-		let access = resolveAccess(proto)
-		let isPublic = access == "public"
+		let access = proto.accessLevel
+		let name = mockName(for: proto)
 
 		var code = CodeBuilder()
 
 		emitHeader(&code)
-		emitImports(&code, isPublic: isPublic, sourceImports: proto.sourceImports)
+		emitImports(&code, isPublic: access == "public", sourceImports: proto.sourceImports)
 		code.addBlankLine()
 
-		switch proto.pattern {
-		case .mainActor:
-			emitClassMock(&code, proto: proto, access: access, nonisolated: false)
-		case .nonisolated:
-			emitClassMock(&code, proto: proto, access: access, nonisolated: true)
-		case .actor:
-			emitActorMock(&code, proto: proto, access: access)
+		guard let emitter = emitters[proto.pattern] else {
+			preconditionFailure("No emitter registered for pattern: \(proto.pattern)")
 		}
+		emitter.emit(code: &code, proto: proto, mockName: name, access: access)
 
 		code.addBlankLine()
 		return code.output
-	}
-
-	// MARK: - Access
-
-	private func resolveAccess(_ proto: ProtocolMetadata) -> String {
-		proto.accessLevel
-	}
-
-	private func accessPrefix(_ access: String) -> String {
-		access.isEmpty ? "" : "\(access) "
 	}
 
 	// MARK: - Header
@@ -55,7 +128,6 @@ public struct SwiftGenerator: Sendable {
 	private func emitImports(_ code: inout CodeBuilder, isPublic: Bool, sourceImports: [String]) {
 		code.addLine("import Foundation")
 
-		// Add extra imports from the source file (e.g., import ChallengeCore)
 		let moduleImport = "import \(moduleName)"
 		let extraImports = sourceImports.filter { $0 != "import Foundation" && $0 != moduleImport }
 		for imp in extraImports {
@@ -68,331 +140,5 @@ public struct SwiftGenerator: Sendable {
 		} else {
 			code.addLine("@testable \(moduleImport)")
 		}
-	}
-
-	// MARK: - Class Mock (MainActor / Nonisolated)
-
-	private func emitClassMock(
-		_ code: inout CodeBuilder,
-		proto: ProtocolMetadata,
-		access: String,
-		nonisolated: Bool
-	) {
-		let prefix = accessPrefix(access)
-		let nonisolatedKeyword = nonisolated ? "nonisolated " : ""
-		let sendable = proto.needsUncheckedSendable ? ", @unchecked Sendable" : ""
-		let header = "\(prefix)\(nonisolatedKeyword)final class \(proto.mockName): \(proto.name)\(sendable)"
-
-		code.addLine("// periphery:ignore:all")
-		code.block(header) { code in
-			emitProtocolProperties(&code, proto: proto, access: access)
-			for (index, method) in proto.methods.enumerated() {
-				if index > 0 || !proto.properties.isEmpty {
-					code.addBlankLine()
-				}
-				emitMethodProperties(&code, method: method, access: access)
-			}
-			emitInit(&code, proto: proto, access: access)
-			for method in proto.methods {
-				code.addBlankLine()
-				emitMethodImpl(&code, method: method, access: access, isConcurrent: nonisolated && method.isConcurrent)
-			}
-			emitReset(&code, proto: proto, access: access)
-		}
-	}
-
-	// MARK: - Actor Mock
-
-	private func emitActorMock(_ code: inout CodeBuilder, proto: ProtocolMetadata, access: String) {
-		let prefix = accessPrefix(access)
-		let header = "\(prefix)actor \(proto.mockName): \(proto.name)"
-
-		code.addLine("// periphery:ignore:all")
-		code.block(header) { code in
-			for method in proto.methods {
-				if method !== proto.methods.first { code.addBlankLine() }
-				emitMethodProperties(&code, method: method, access: access)
-			}
-			emitActorSetters(&code, proto: proto, access: access)
-			for method in proto.methods {
-				code.addBlankLine()
-				emitMethodImpl(&code, method: method, access: access, isConcurrent: false)
-			}
-			emitReset(&code, proto: proto, access: access)
-		}
-	}
-
-	// MARK: - Protocol Properties
-
-	private func emitProtocolProperties(_ code: inout CodeBuilder, proto: ProtocolMetadata, access: String) {
-		let prefix = accessPrefix(access)
-		for prop in proto.properties {
-			code.addLine("\(prefix)var \(prop.name): \(prop.type)")
-		}
-	}
-
-	// MARK: - Method Properties
-
-	private func emitMethodProperties(_ code: inout CodeBuilder, method: MethodMetadata, access: String) {
-		let prefix = accessPrefix(access)
-		let ppVar = "\(prefix)private(set) var"
-
-		// CallsCount
-		code.addLine("\(ppVar) \(method.name)CallsCount = 0")
-
-		// Received params
-		if method.parameters.count == 1 {
-			let param = method.parameters[0]
-			code.addLine("\(ppVar) \(method.name)Received\(param.trackingName.capitalizedFirst): \(optionalType(param.type))")
-		} else if method.parameters.count > 1 {
-			let tupleType = method.parameters.map { "\($0.internalName): \($0.type)" }.joined(separator: ", ")
-			code.addLine("\(ppVar) \(method.name)ReceivedArguments: (\(tupleType))?")
-		}
-
-		// ReceivedInvocations
-		if !method.parameters.isEmpty {
-			if method.parameters.count == 1 {
-				let param = method.parameters[0]
-				code.addLine("\(ppVar) \(method.name)ReceivedInvocations: [\(param.type)] = []")
-			} else {
-				let tupleType = method.parameters.map { "\($0.internalName): \($0.type)" }.joined(separator: ", ")
-				code.addLine("\(ppVar) \(method.name)ReceivedInvocations: [(\(tupleType))] = []")
-			}
-		}
-
-		// ReturnValue
-		if method.isThrowing, let returnType = method.returnType {
-			// Throwing + returning → Result<T, E>?
-			let errorType = method.throwsType ?? "any Error"
-			let type = method.hasGenericReturn ? "Any?" : "Result<\(returnType), \(errorType)>?"
-			code.addLine("\(prefix)var \(method.name)ReturnValue: \(type)")
-		} else if method.isThrowing && method.returnType == nil {
-			// Throwing + void → ThrowableError
-			let errorType = method.throwsType ?? "any Error"
-			code.addLine("\(prefix)var \(method.name)ThrowableError: (\(errorType))?")
-		} else if let returnType = method.returnType {
-			// Non-throwing + returning → T?
-			let type = method.hasGenericReturn ? "Any?" : optionalType(returnType)
-			code.addLine("\(prefix)var \(method.name)ReturnValue: \(type)")
-		}
-
-		// Closure (side-effect callback)
-		let closureType = method.isAsync ? "(() async -> Void)?" : "(() -> Void)?"
-		code.addLine("\(prefix)var \(method.name)Closure: \(closureType)")
-	}
-
-	// MARK: - Actor Setters
-
-	private func emitActorSetters(_ code: inout CodeBuilder, proto: ProtocolMetadata, access: String) {
-		let prefix = accessPrefix(access)
-
-		for method in proto.methods {
-			let cap = method.name.capitalizedFirst
-
-			if method.isThrowing, let returnType = method.returnType {
-				let errorType = method.throwsType ?? "any Error"
-				let type = method.hasGenericReturn ? "Any?" : "Result<\(returnType), \(errorType)>?"
-				code.addBlankLine()
-				code.block("\(prefix)func set\(cap)ReturnValue(_ value: \(type))") { code in
-					code.addLine("\(method.name)ReturnValue = value")
-				}
-			} else if method.isThrowing && method.returnType == nil {
-				let errorType = method.throwsType ?? "any Error"
-				code.addBlankLine()
-				code.block("\(prefix)func set\(cap)ThrowableError(_ error: (\(errorType))?)") { code in
-					code.addLine("\(method.name)ThrowableError = error")
-				}
-			} else if let returnType = method.returnType {
-				let type = method.hasGenericReturn ? "Any?" : optionalType(returnType)
-				code.addBlankLine()
-				code.block("\(prefix)func set\(cap)ReturnValue(_ value: \(type))") { code in
-					code.addLine("\(method.name)ReturnValue = value")
-				}
-			}
-
-			code.addBlankLine()
-			let closureType = method.isAsync ? "(() async -> Void)?" : "(() -> Void)?"
-			code.block("\(prefix)func set\(cap)Closure(_ closure: \(closureType))") { code in
-				code.addLine("\(method.name)Closure = closure")
-			}
-		}
-	}
-
-	// MARK: - Init
-
-	private func emitInit(_ code: inout CodeBuilder, proto: ProtocolMetadata, access: String) {
-		let nonOptionalProps = proto.properties.filter { !$0.isOptional && proto.pattern != .actor }
-		guard !nonOptionalProps.isEmpty || !access.isEmpty else { return }
-
-		let prefix = accessPrefix(access)
-		code.addBlankLine()
-
-		if nonOptionalProps.isEmpty {
-			code.addLine("\(prefix)init() {}")
-		} else {
-			let params = nonOptionalProps.map { "\($0.name): \($0.type)" }.joined(separator: ", ")
-			code.block("\(prefix)init(\(params))") { code in
-				for prop in nonOptionalProps {
-					code.addLine("self.\(prop.name) = \(prop.name)")
-				}
-			}
-		}
-	}
-
-	// MARK: - Method Implementation
-
-	private func emitMethodImpl(
-		_ code: inout CodeBuilder,
-		method: MethodMetadata,
-		access: String,
-		isConcurrent: Bool
-	) {
-		let prefix = accessPrefix(access)
-		let signature = buildMethodSignature(method, prefix: prefix, isConcurrent: isConcurrent)
-
-		code.block(signature) { code in
-			// 1. Increment call count
-			code.addLine("\(method.name)CallsCount += 1")
-
-			// 2. Record received arguments
-			if method.parameters.count == 1 {
-				let param = method.parameters[0]
-				code.addLine("\(method.name)Received\(param.trackingName.capitalizedFirst) = \(param.internalName)")
-				code.addLine("\(method.name)ReceivedInvocations.append(\(param.internalName))")
-			} else if method.parameters.count > 1 {
-				let args = method.parameters.map { $0.internalName }.joined(separator: ", ")
-				code.addLine("\(method.name)ReceivedArguments = (\(args))")
-				code.addLine("\(method.name)ReceivedInvocations.append((\(args)))")
-			}
-
-			// 3. Side-effect closure
-			if method.isAsync {
-				code.addLine("await \(method.name)Closure?()")
-			} else {
-				code.addLine("\(method.name)Closure?()")
-			}
-
-			// 4. Return / throw
-			if method.isThrowing, let returnType = method.returnType {
-				if method.hasGenericReturn {
-					code.addLine("guard let returnValue = \(method.name)ReturnValue as? \(returnType) else {")
-					code.addLine("\tpreconditionFailure(\"\(method.name)ReturnValue not configured or type mismatch\")")
-					code.addLine("}")
-					code.addLine("return returnValue")
-				} else {
-					code.addLine("guard let returnValue = \(method.name)ReturnValue else {")
-					code.addLine("\tpreconditionFailure(\"\(method.name)ReturnValue not configured\")")
-					code.addLine("}")
-					code.addLine("return try returnValue.get()")
-				}
-			} else if method.isThrowing && method.returnType == nil {
-				code.addLine("if let error = \(method.name)ThrowableError { throw error }")
-			} else if let returnType = method.returnType {
-				if method.hasGenericReturn {
-					code.addLine("guard let returnValue = \(method.name)ReturnValue as? \(returnType) else {")
-					code.addLine("\tpreconditionFailure(\"\(method.name)ReturnValue not configured or type mismatch\")")
-					code.addLine("}")
-					code.addLine("return returnValue")
-				} else if returnType.hasSuffix("?") {
-					code.addLine("return \(method.name)ReturnValue")
-				} else {
-					code.addLine("guard let returnValue = \(method.name)ReturnValue else {")
-					code.addLine("\tpreconditionFailure(\"\(method.name)ReturnValue not configured\")")
-					code.addLine("}")
-					code.addLine("return returnValue")
-				}
-			}
-		}
-	}
-
-	// MARK: - Reset
-
-	private func emitReset(_ code: inout CodeBuilder, proto: ProtocolMetadata, access: String) {
-		let prefix = accessPrefix(access)
-
-		code.addBlankLine()
-		code.addLine("// MARK: - Reset")
-		code.addBlankLine()
-		code.block("\(prefix)func reset()") { code in
-			for method in proto.methods {
-				code.addLine("\(method.name)CallsCount = 0")
-
-				if method.parameters.count == 1 {
-					let param = method.parameters[0]
-					code.addLine("\(method.name)Received\(param.trackingName.capitalizedFirst) = nil")
-					code.addLine("\(method.name)ReceivedInvocations = []")
-				} else if method.parameters.count > 1 {
-					code.addLine("\(method.name)ReceivedArguments = nil")
-					code.addLine("\(method.name)ReceivedInvocations = []")
-				}
-			}
-		}
-	}
-
-	// MARK: - Signature Builders
-
-	private func buildMethodSignature(_ method: MethodMetadata, prefix: String, isConcurrent: Bool) -> String {
-		var parts: [String] = []
-
-		if isConcurrent {
-			parts.append("@concurrent")
-		}
-
-		parts.append("\(prefix)func \(method.name)")
-
-		if let genericClause = method.genericClause {
-			let last = parts.removeLast()
-			parts.append(last + genericClause)
-		}
-
-		let params = method.parameters.map { $0.declaration }.joined(separator: ", ")
-		let lastIdx = parts.count - 1
-		parts[lastIdx] = parts[lastIdx] + "(\(params))"
-
-		if method.isAsync { parts.append("async") }
-
-		if method.isThrowing {
-			if let throwsType = method.throwsType {
-				parts.append("throws(\(throwsType))")
-			} else {
-				parts.append("throws")
-			}
-		}
-
-		if let returnType = method.returnType {
-			parts.append("-> \(returnType)")
-		}
-
-		return parts.joined(separator: " ")
-	}
-
-	// MARK: - Helpers
-
-	private func optionalType(_ type: String) -> String {
-		if type.hasSuffix("?") { return type }
-		if type.hasPrefix("any ") || type.hasPrefix("some ") || type.contains("->") {
-			return "(\(type))?"
-		}
-		return "\(type)?"
-	}
-}
-
-// MARK: - Internal Helpers
-
-extension MethodMetadata {
-	fileprivate func isIdentical(to other: MethodMetadata) -> Bool {
-		name == other.name
-	}
-}
-
-private func !== (_ lhs: MethodMetadata, _ rhs: MethodMetadata?) -> Bool {
-	guard let rhs else { return true }
-	return !lhs.isIdentical(to: rhs)
-}
-
-extension String {
-	var capitalizedFirst: String {
-		guard let first = self.first else { return self }
-		return first.uppercased() + dropFirst()
 	}
 }
