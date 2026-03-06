@@ -115,6 +115,41 @@ public struct SwiftGenerator: Sendable {
 		return code.output
 	}
 
+	/// Generates a single combined file containing all mock implementations.
+	///
+	/// Unlike ``generate(from:)``, which produces one file per protocol, this method
+	/// merges all protocols into a single output with a shared header and deduplicated
+	/// import statements. This is the preferred output mode because it produces a stable
+	/// filename (`GeneratedMocks.swift`) that can be referenced by build systems at
+	/// project-generation time.
+	///
+	/// - Parameters:
+	///   - protocols: The protocol metadata array to generate mocks for.
+	///   - isPublic: When `true`, uses `import <moduleName>`. When `false`, uses `@testable import`.
+	/// - Returns: The generated Swift source code as a single string containing all mocks.
+	public func generateCombinedFile(from protocols: [ProtocolMetadata], isPublic: Bool) -> String {
+		var code = CodeBuilder()
+
+		emitHeader(&code)
+
+		let mergedImports = mergeImports(from: protocols)
+		emitImports(&code, isPublic: isPublic, sourceImports: mergedImports)
+
+		for proto in protocols {
+			let access = proto.accessLevel
+			let name = mockName(for: proto)
+			code.addBlankLine()
+
+			guard let emitter = emitters[proto.pattern] else {
+				preconditionFailure("No emitter registered for pattern: \(proto.pattern)")
+			}
+			emitter.emit(code: &code, proto: proto, mockName: name, access: access)
+		}
+
+		code.addBlankLine()
+		return code.output
+	}
+
 	// MARK: - Header
 
 	private func emitHeader(_ code: inout CodeBuilder) {
@@ -124,6 +159,19 @@ public struct SwiftGenerator: Sendable {
 	}
 
 	// MARK: - Imports
+
+	private func mergeImports(from protocols: [ProtocolMetadata]) -> [String] {
+		var seen = Set<String>()
+		var result: [String] = []
+		for proto in protocols {
+			for imp in proto.sourceImports {
+				if seen.insert(imp).inserted {
+					result.append(imp)
+				}
+			}
+		}
+		return result
+	}
 
 	private func emitImports(_ code: inout CodeBuilder, isPublic: Bool, sourceImports: [String]) {
 		code.addLine("import Foundation")

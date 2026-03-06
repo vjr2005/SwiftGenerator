@@ -33,22 +33,45 @@ struct SwiftGeneratorCLI: ParsableCommand {
 			return
 		}
 
-		try fileSystem.createDirectory(atPath: internalOutput)
-		if let publicOutput {
-			try fileSystem.createDirectory(atPath: publicOutput)
+		let internalProtos = protocols.filter { outputDirectory(for: $0) == internalOutput }
+		let publicProtos = protocols.filter { outputDirectory(for: $0) != internalOutput }
+
+		if !internalProtos.isEmpty {
+			try writeGeneratedFile(
+				protocols: internalProtos,
+				to: internalOutput,
+				isPublic: false,
+				generator: generator,
+				fileSystem: fileSystem
+			)
 		}
 
-		for proto in protocols {
-			let code = generator.generate(from: proto)
-			let mockName = generator.mockName(for: proto)
-			let filename = "\(mockName).swift"
-			let outputDir = outputDirectory(for: proto)
-			let filePath = (outputDir as NSString).appendingPathComponent(filename)
-			try fileSystem.write(code, toFile: filePath)
-			print("Generated: \(filename)")
+		if !publicProtos.isEmpty, let publicOutput {
+			try writeGeneratedFile(
+				protocols: publicProtos,
+				to: publicOutput,
+				isPublic: true,
+				generator: generator,
+				fileSystem: fileSystem
+			)
 		}
 
 		print("\(protocols.count) mock(s) generated.")
+	}
+
+	private func writeGeneratedFile(
+		protocols: [ProtocolMetadata],
+		to directory: String,
+		isPublic: Bool,
+		generator: SwiftGenerator,
+		fileSystem: FileSystem
+	) throws {
+		try fileSystem.createDirectory(atPath: directory)
+		let code = generator.generateCombinedFile(from: protocols, isPublic: isPublic)
+		let filePath = (directory as NSString).appendingPathComponent("GeneratedMocks.swift")
+		try fileSystem.write(code, toFile: filePath)
+		let access = isPublic ? "public" : "internal"
+		print("Generated: GeneratedMocks.swift (\(protocols.count) \(access) mock(s))")
 	}
 
 	private func parseProtocols(

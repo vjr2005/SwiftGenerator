@@ -27,19 +27,55 @@ jobs:
           key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
           restore-keys: spm-${{ runner.os }}-
 
+      # ── Save original state for rollback ──
+
+      - name: Save original tag SHA
+        id: original
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       # ── Build ──
 
-      - name: Build universal binary
-        run: make release
+      - name: Build artifact bundle
+        run: ./scripts/build-release.sh "${{ steps.tag.outputs.version }}"
 
-      # ── Publish ──
+      - name: Compute checksum
+        id: checksum
+        run: |
+          CHECKSUM=$(swift package compute-checksum build/swift-generator.artifactbundle.zip)
+          echo "value=${CHECKSUM}" >> "$GITHUB_OUTPUT"
 
-      - name: Create release with binary
+      # ── Publish: draft release first, then commit, then finalize ──
+
+      - name: Create draft release with artifact bundle
         run: |
           gh release create "${{ steps.tag.outputs.version }}" \
-            build/universal/swift-generator.zip \
+            build/swift-generator.artifactbundle.zip \
             --title "${{ steps.tag.outputs.version }}" \
-            --generate-notes
+            --generate-notes \
+            --draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Update Package.swift with checksum and version
+        run: |
+          TAG="${{ steps.tag.outputs.version }}"
+          CHECKSUM="${{ steps.checksum.outputs.value }}"
+          sed -i '' "s|let binaryChecksum = \".*\"|let binaryChecksum = \"${CHECKSUM}\"|" Package.swift
+          sed -i '' "s|releases/download/[^/]*/|releases/download/${TAG}/|" Package.swift
+
+      - name: Commit checksum and retag
+        run: |
+          TAG="${{ steps.tag.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Package.swift
+          git commit -m "Set binary checksum for ${TAG} [skip ci]"
+          git tag -fa "${TAG}" -m "Release ${TAG}"
+          git push origin HEAD:main
+          git push origin "${TAG}" --force
+
+      - name: Publish release
+        run: gh release edit "${{ steps.tag.outputs.version }}" --draft=false
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -49,8 +85,20 @@ jobs:
         if: failure()
         run: |
           TAG="${{ steps.tag.outputs.version }}"
-          echo "▸ Deleting release (if created)…"
+          ORIGINAL_SHA="${{ steps.original.outputs.sha }}"
+
+          echo "▸ Deleting draft release (if created)…"
           gh release delete "${TAG}" --yes 2>/dev/null || true
+
+          echo "▸ Restoring tag to original commit ${ORIGINAL_SHA}…"
+          git tag -fa "${TAG}" "${ORIGINAL_SHA}" -m "Release ${TAG}"
+          git push origin "${TAG}" --force 2>/dev/null || true
+
+          echo "▸ Reverting checksum commit on main (if pushed)…"
+          if [ "$(git rev-parse HEAD)" != "${ORIGINAL_SHA}" ]; then
+            git push origin HEAD:main --force-with-lease 2>/dev/null || true
+          fi
+
           echo "⚠ Rollback complete. Review the state before retrying."
         env:
           GH_TOKEN: ${{ github.token }}

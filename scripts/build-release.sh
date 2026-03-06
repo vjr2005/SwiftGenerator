@@ -12,22 +12,26 @@ success() { echo -e "${GREEN}[OK]${NC} $1"; }
 error()   { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
 PRODUCT_NAME="swift-generator"
+VERSION="${1:-0.0.1}"
 BUILD_DIR="build"
 ARM64_DIR="${BUILD_DIR}/arm64"
 X86_64_DIR="${BUILD_DIR}/x86_64"
-UNIVERSAL_DIR="${BUILD_DIR}/universal"
-ZIP_NAME="${PRODUCT_NAME}.zip"
+BUNDLE_NAME="${PRODUCT_NAME}.artifactbundle"
+BUNDLE_DIR="${BUILD_DIR}/${BUNDLE_NAME}"
+VARIANT_DIR="${BUNDLE_DIR}/${PRODUCT_NAME}-macos"
+ZIP_NAME="${BUNDLE_NAME}.zip"
 
 echo ""
 echo -e "${BLUE}╔══════════════════════════════════════╗${NC}"
 echo -e "${BLUE}║   SwiftGenerator — Release Build     ║${NC}"
 echo -e "${BLUE}╚══════════════════════════════════════╝${NC}"
 echo ""
+info "Version: ${VERSION}"
 
 # ─── Clean ────────────────────────────────────────
 info "Cleaning previous build artifacts..."
 rm -rf "${BUILD_DIR}"
-mkdir -p "${ARM64_DIR}" "${X86_64_DIR}" "${UNIVERSAL_DIR}"
+mkdir -p "${ARM64_DIR}" "${X86_64_DIR}" "${VARIANT_DIR}"
 
 # ─── Build arm64 ──────────────────────────────────
 info "Building for arm64..."
@@ -46,27 +50,51 @@ info "Creating universal binary with lipo..."
 lipo -create \
 	"${ARM64_DIR}/${PRODUCT_NAME}" \
 	"${X86_64_DIR}/${PRODUCT_NAME}" \
-	-output "${UNIVERSAL_DIR}/${PRODUCT_NAME}"
+	-output "${VARIANT_DIR}/${PRODUCT_NAME}"
 success "Universal binary created."
 
 # ─── Verify ───────────────────────────────────────
 info "Verifying universal binary..."
-lipo -info "${UNIVERSAL_DIR}/${PRODUCT_NAME}"
+lipo -info "${VARIANT_DIR}/${PRODUCT_NAME}"
+
+# ─── Create artifact bundle manifest ──────────────
+info "Creating artifact bundle manifest..."
+cat > "${BUNDLE_DIR}/info.json" <<EOF
+{
+  "schemaVersion": "1.0",
+  "artifacts": {
+    "${PRODUCT_NAME}": {
+      "version": "${VERSION}",
+      "type": "executable",
+      "variants": [
+        {
+          "path": "${PRODUCT_NAME}-macos/${PRODUCT_NAME}",
+          "supportedTriples": [
+            "x86_64-apple-macosx",
+            "arm64-apple-macosx"
+          ]
+        }
+      ]
+    }
+  }
+}
+EOF
+success "Artifact bundle manifest created."
 
 # ─── Zip ──────────────────────────────────────────
 info "Creating zip archive..."
-cd "${UNIVERSAL_DIR}"
-zip "${ZIP_NAME}" "${PRODUCT_NAME}"
+cd "${BUILD_DIR}"
+zip -r "${ZIP_NAME}" "${BUNDLE_NAME}"
 cd - > /dev/null
-success "Archive created: ${UNIVERSAL_DIR}/${ZIP_NAME}"
+success "Archive created: ${BUILD_DIR}/${ZIP_NAME}"
 
 # ─── Checksum ─────────────────────────────────────
 info "Computing checksum..."
-CHECKSUM=$(shasum -a 256 "${UNIVERSAL_DIR}/${ZIP_NAME}" | awk '{ print $1 }')
+CHECKSUM=$(swift package compute-checksum "${BUILD_DIR}/${ZIP_NAME}")
 echo ""
 success "Release build complete!"
 echo ""
-echo -e "  Binary:   ${BLUE}${UNIVERSAL_DIR}/${PRODUCT_NAME}${NC}"
-echo -e "  Archive:  ${BLUE}${UNIVERSAL_DIR}/${ZIP_NAME}${NC}"
+echo -e "  Bundle:   ${BLUE}${BUNDLE_DIR}/${NC}"
+echo -e "  Archive:  ${BLUE}${BUILD_DIR}/${ZIP_NAME}${NC}"
 echo -e "  Checksum: ${GREEN}${CHECKSUM}${NC}"
 echo ""

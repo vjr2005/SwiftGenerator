@@ -632,6 +632,47 @@ swift-generator \
 
 ## Integration
 
+### SPM Command Plugin (recommended)
+
+The easiest way to integrate SwiftGenerator into your project. Add the dependency to your `Package.swift`:
+
+```swift
+dependencies: [
+    .package(url: "https://github.com/vjr2005/SwiftGenerator", from: "1.0.0"),
+]
+```
+
+Then run the plugin:
+
+```bash
+# Auto-detects sources, module, and output for all targets:
+swift package plugin --allow-writing-to-package-directory generate-mocks
+
+# Specify a target:
+swift package plugin --allow-writing-to-package-directory generate-mocks --target MyFeature
+
+# Full manual control:
+swift package plugin --allow-writing-to-package-directory generate-mocks \
+    --target MyFeature \
+    --module MyFeature \
+    --internal-output Tests/MyFeatureTests/Mocks \
+    --public-output Tests/MyFeatureTests/PublicMocks
+```
+
+**Auto-detection defaults:**
+
+| Argument | Auto-detected value | Override flag |
+|----------|-------------------|---------------|
+| `--sources` | Target source directory | `--sources <path>` |
+| `--module` | Target name | `--module <name>` |
+| `--internal-output` | `Tests/<TargetName>Tests/Mocks/` | `--internal-output <path>` |
+| `--public-output` | Not auto-detected | `--public-output <path>` |
+| `--target` | All non-test Swift source targets | `--target <name>` |
+
+**Binary distribution:** When using a released version, the plugin downloads a pre-built universal binary — no need to compile SwiftSyntax locally. This makes the first run fast.
+
+**Xcode:** The plugin is also available from Xcode: right-click the package in the navigator and select "generate-mocks".
+
 ### Build Script
 
 ```bash
@@ -672,7 +713,12 @@ SwiftGenerator/
   Makefile                                # Unified command interface
   scripts/
     bootstrap.sh                          # First-time setup script
-    build-release.sh                      # Universal binary build script
+    build-release.sh                      # Artifact bundle build script
+  Plugins/
+    GenerateMocks/
+      GenerateMocksPlugin.swift           # SPM Command Plugin entry point
+      GenerateMocksPluginError.swift      # Plugin error types
+      PackagePlugin+Helpers.swift         # Subprocess execution helper
   Sources/
     CLI/
       CLI.swift                           # Command-line entry point (ArgumentParser)
