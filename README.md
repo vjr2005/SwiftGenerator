@@ -57,11 +57,39 @@ SwiftGenerator ships with a **Mock Generator** as its first built-in generator, 
 
 ## Installation
 
-There are two ways to integrate SwiftGenerator: **from sources** (SPM compiles the project) or **pre-built binary**.
+### mise (recommended)
+
+Install the pre-built binary via [mise](https://mise.jdx.dev):
+
+```bash
+# Install globally
+mise use -g ubi:vjr2005/SwiftGenerator
+
+# Or pin a version
+mise use -g ubi:vjr2005/SwiftGenerator@1.0.0
+```
+
+Or add it to your project's `mise.toml`:
+
+```toml
+[tools]
+"ubi:vjr2005/SwiftGenerator" = "1.0.0"
+
+[tasks.generate-mocks]
+description = "Generate mocks from @mock-annotated protocols"
+run = """
+swift-generator \
+    --sources Sources/MyFeature \
+    --internal-output Tests/MyFeatureTests/Mocks \
+    --module MyFeature
+"""
+```
+
+After `mise install`, run `swift-generator` directly or `mise run generate-mocks`.
 
 ### From Sources (SPM)
 
-Ideal for integrating `SwiftGeneratorKit` as a library or the executable as a project dependency:
+Ideal for integrating `SwiftGeneratorKit` as a library or using the SPM command plugin:
 
 ```swift
 dependencies: [
@@ -73,7 +101,7 @@ SPM clones the repository and compiles automatically from the versioned tag.
 
 ### Universal Binary (macOS)
 
-To distribute or use the CLI directly without compiling from sources:
+Build a universal binary locally:
 
 ```bash
 git clone https://github.com/vjr2005/SwiftGenerator.git
@@ -81,20 +109,15 @@ cd SwiftGenerator
 make release
 ```
 
-This runs `scripts/build-release.sh`, which:
-1. Builds for `arm64` and `x86_64` separately
-2. Creates a universal binary via `lipo`
-3. Zips the binary and computes its SHA-256 checksum
-
-The resulting binary is at `build/universal/swift-generator`. Copy it to a directory in your `$PATH` to use it globally:
+This builds for `arm64` and `x86_64`, creates a universal binary via `lipo`, and packages it as an artifact bundle. Copy the binary to your `$PATH`:
 
 ```bash
-cp build/universal/swift-generator /usr/local/bin/
+cp build/swift-generator.artifactbundle/swift-generator-macos/swift-generator /usr/local/bin/
 ```
 
 ### Quick Build from Sources
 
-If you just need to compile and run locally during development:
+For local development:
 
 ```bash
 swift build -c release

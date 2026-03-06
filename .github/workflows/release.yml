@@ -50,6 +50,7 @@ jobs:
         run: |
           gh release create "${{ steps.tag.outputs.version }}" \
             build/swift-generator.artifactbundle.zip \
+            build/swift-generator-macos-universal.zip \
             --title "${{ steps.tag.outputs.version }}" \
             --generate-notes \
             --draft

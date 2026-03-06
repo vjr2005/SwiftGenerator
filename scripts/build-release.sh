@@ -81,12 +81,22 @@ cat > "${BUNDLE_DIR}/info.json" <<EOF
 EOF
 success "Artifact bundle manifest created."
 
-# ─── Zip ──────────────────────────────────────────
-info "Creating zip archive..."
+# ─── Zip (artifact bundle for SPM) ────────────────
+info "Creating artifact bundle zip..."
 cd "${BUILD_DIR}"
 zip -r "${ZIP_NAME}" "${BUNDLE_NAME}"
 cd - > /dev/null
 success "Archive created: ${BUILD_DIR}/${ZIP_NAME}"
+
+# ─── Zip (plain binary for mise/ubi) ──────────────
+PLAIN_ZIP="${PRODUCT_NAME}-macos-universal.zip"
+info "Creating plain binary zip for mise..."
+cp "${VARIANT_DIR}/${PRODUCT_NAME}" "${BUILD_DIR}/${PRODUCT_NAME}"
+cd "${BUILD_DIR}"
+zip "${PLAIN_ZIP}" "${PRODUCT_NAME}"
+rm "${PRODUCT_NAME}"
+cd - > /dev/null
+success "Archive created: ${BUILD_DIR}/${PLAIN_ZIP}"
 
 # ─── Checksum ─────────────────────────────────────
 info "Computing checksum..."
@@ -94,7 +104,7 @@ CHECKSUM=$(swift package compute-checksum "${BUILD_DIR}/${ZIP_NAME}")
 echo ""
 success "Release build complete!"
 echo ""
-echo -e "  Bundle:   ${BLUE}${BUNDLE_DIR}/${NC}"
-echo -e "  Archive:  ${BLUE}${BUILD_DIR}/${ZIP_NAME}${NC}"
-echo -e "  Checksum: ${GREEN}${CHECKSUM}${NC}"
+echo -e "  SPM artifact bundle: ${BLUE}${BUILD_DIR}/${ZIP_NAME}${NC}"
+echo -e "  mise/ubi binary:     ${BLUE}${BUILD_DIR}/${PLAIN_ZIP}${NC}"
+echo -e "  SPM checksum:        ${GREEN}${CHECKSUM}${NC}"
 echo ""
