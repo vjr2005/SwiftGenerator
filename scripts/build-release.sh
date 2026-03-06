@@ -1,0 +1,72 @@
+#!/bin/bash
+set -euo pipefail
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+info()    { echo -e "${BLUE}[INFO]${NC} $1"; }
+success() { echo -e "${GREEN}[OK]${NC} $1"; }
+error()   { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
+
+PRODUCT_NAME="swift-generator"
+BUILD_DIR="build"
+ARM64_DIR="${BUILD_DIR}/arm64"
+X86_64_DIR="${BUILD_DIR}/x86_64"
+UNIVERSAL_DIR="${BUILD_DIR}/universal"
+ZIP_NAME="${PRODUCT_NAME}.zip"
+
+echo ""
+echo -e "${BLUE}╔══════════════════════════════════════╗${NC}"
+echo -e "${BLUE}║   SwiftGenerator — Release Build     ║${NC}"
+echo -e "${BLUE}╚══════════════════════════════════════╝${NC}"
+echo ""
+
+# ─── Clean ────────────────────────────────────────
+info "Cleaning previous build artifacts..."
+rm -rf "${BUILD_DIR}"
+mkdir -p "${ARM64_DIR}" "${X86_64_DIR}" "${UNIVERSAL_DIR}"
+
+# ─── Build arm64 ──────────────────────────────────
+info "Building for arm64..."
+swift build -c release --arch arm64
+cp "$(swift build -c release --arch arm64 --show-bin-path)/${PRODUCT_NAME}" "${ARM64_DIR}/${PRODUCT_NAME}"
+success "arm64 build complete."
+
+# ─── Build x86_64 ─────────────────────────────────
+info "Building for x86_64..."
+swift build -c release --arch x86_64
+cp "$(swift build -c release --arch x86_64 --show-bin-path)/${PRODUCT_NAME}" "${X86_64_DIR}/${PRODUCT_NAME}"
+success "x86_64 build complete."
+
+# ─── Create universal binary ──────────────────────
+info "Creating universal binary with lipo..."
+lipo -create \
+	"${ARM64_DIR}/${PRODUCT_NAME}" \
+	"${X86_64_DIR}/${PRODUCT_NAME}" \
+	-output "${UNIVERSAL_DIR}/${PRODUCT_NAME}"
+success "Universal binary created."
+
+# ─── Verify ───────────────────────────────────────
+info "Verifying universal binary..."
+lipo -info "${UNIVERSAL_DIR}/${PRODUCT_NAME}"
+
+# ─── Zip ──────────────────────────────────────────
+info "Creating zip archive..."
+cd "${UNIVERSAL_DIR}"
+zip "${ZIP_NAME}" "${PRODUCT_NAME}"
+cd - > /dev/null
+success "Archive created: ${UNIVERSAL_DIR}/${ZIP_NAME}"
+
+# ─── Checksum ─────────────────────────────────────
+info "Computing checksum..."
+CHECKSUM=$(shasum -a 256 "${UNIVERSAL_DIR}/${ZIP_NAME}" | awk '{ print $1 }')
+echo ""
+success "Release build complete!"
+echo ""
+echo -e "  Binary:   ${BLUE}${UNIVERSAL_DIR}/${PRODUCT_NAME}${NC}"
+echo -e "  Archive:  ${BLUE}${UNIVERSAL_DIR}/${ZIP_NAME}${NC}"
+echo -e "  Checksum: ${GREEN}${CHECKSUM}${NC}"
+echo ""

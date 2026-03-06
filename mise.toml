@@ -1,0 +1,38 @@
+[tools]
+tuist = "4"
+
+[tasks.setup]
+description = "Install dependencies and generate Xcode project"
+run = "tuist install && tuist generate"
+
+[tasks.generate]
+description = "Generate Xcode project"
+run = "tuist generate"
+
+[tasks.edit]
+description = "Open Tuist project for editing manifests"
+run = "tuist edit"
+
+[tasks.build]
+description = "Build with Tuist"
+run = "tuist build"
+
+[tasks.test]
+description = "Run tests with Tuist"
+run = "tuist test"
+
+[tasks.clean]
+description = "Clean build artifacts"
+run = "tuist clean"
+
+[tasks.graph]
+description = "Generate dependency graph"
+run = "tuist graph"
+
+[tasks.spm-build]
+description = "Build with Swift Package Manager"
+run = "swift build"
+
+[tasks.spm-test]
+description = "Run tests with Swift Package Manager"
+run = "swift test"

@@ -1,4 +1,17 @@
 // swift-tools-version: 6.0
+
+#if TUIST
+import struct ProjectDescription.PackageSettings
+
+let packageSettings = PackageSettings(
+	productTypes: [
+		"SwiftSyntax": .framework,
+		"SwiftParser": .framework,
+		"ArgumentParser": .framework,
+	]
+)
+#endif
+
 import PackageDescription
 
 let package = Package(

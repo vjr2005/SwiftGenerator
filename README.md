@@ -9,6 +9,14 @@ SwiftGenerator ships with a **Mock Generator** as its first built-in generator, 
 - [Why SwiftGenerator](#why-swiftgenerator)
 - [Requirements](#requirements)
 - [Installation](#installation)
+  - [Quick Start (Bootstrap)](#quick-start-bootstrap)
+  - [Build from Source](#build-from-source)
+  - [Release Binary](#release-binary)
+  - [Swift Package Manager](#swift-package-manager)
+- [Development](#development)
+  - [Prerequisites](#prerequisites)
+  - [Project Setup](#project-setup)
+  - [Available Commands](#available-commands)
 - [Generators](#generators)
   - [Mock Generator](#mock-generator)
     - [Quick Start](#quick-start)
@@ -43,28 +51,98 @@ SwiftGenerator ships with a **Mock Generator** as its first built-in generator, 
 
 - **Swift 6.0** or later
 - **macOS 13** or later
+- **[mise](https://mise.jdx.dev)** (for development with Tuist)
 
 ---
 
 ## Installation
 
-### Swift Package Manager (as a dependency)
+There are two ways to integrate SwiftGenerator: **from sources** (SPM compiles the project) or **pre-built binary**.
+
+### From Sources (SPM)
+
+Ideal for integrating `SwiftGeneratorKit` as a library or the executable as a project dependency:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/<your-org>/SwiftGenerator", from: "1.0.0"),
+    .package(url: "https://github.com/vjr2005/SwiftGenerator", from: "1.0.0"),
 ]
 ```
 
-### Build from source
+SPM clones the repository and compiles automatically from the versioned tag.
+
+### Universal Binary (macOS)
+
+To distribute or use the CLI directly without compiling from sources:
 
 ```bash
-git clone https://github.com/<your-org>/SwiftGenerator.git
+git clone https://github.com/vjr2005/SwiftGenerator.git
 cd SwiftGenerator
+make release
+```
+
+This runs `scripts/build-release.sh`, which:
+1. Builds for `arm64` and `x86_64` separately
+2. Creates a universal binary via `lipo`
+3. Zips the binary and computes its SHA-256 checksum
+
+The resulting binary is at `build/universal/swift-generator`. Copy it to a directory in your `$PATH` to use it globally:
+
+```bash
+cp build/universal/swift-generator /usr/local/bin/
+```
+
+### Quick Build from Sources
+
+If you just need to compile and run locally during development:
+
+```bash
 swift build -c release
 ```
 
-The built binary is located at `.build/release/swift-generator`.
+The binary is generated at `.build/release/swift-generator`.
+
+---
+
+## Development
+
+### Prerequisites
+
+| Tool | Version | Purpose |
+|------|---------|---------|
+| [mise](https://mise.jdx.dev) | Latest | Tool version manager |
+| [Tuist](https://tuist.io) | 4.x | Xcode project generation (installed via mise) |
+| Swift | 6.0+ | Compiler |
+| Xcode | 16+ | IDE (optional, for Tuist-generated project) |
+
+### Project Setup
+
+```bash
+# First-time setup (installs mise tools, generates Xcode project)
+make bootstrap
+
+# Or if mise/tuist are already installed:
+make setup
+```
+
+### Available Commands
+
+All commands are available via `make` or `mise`:
+
+| Command | Make | Mise | Description |
+|---------|------|------|-------------|
+| Bootstrap | `make bootstrap` | — | First-time setup (installs tools, generates project) |
+| Setup | `make setup` | `mise run setup` | Install dependencies and generate Xcode project |
+| Generate | `make generate` | `mise run generate` | Regenerate Xcode project |
+| Edit | `make edit` | `mise run edit` | Open Tuist manifests for editing |
+| Build | `make build` | `mise run build` | Build with Tuist |
+| Test | `make test` | `mise run test` | Run tests with Tuist |
+| Clean | `make clean` | `mise run clean` | Clean build artifacts |
+| Graph | `make graph` | `mise run graph` | Generate dependency graph |
+| SPM Build | `make spm-build` | `mise run spm-build` | Build with Swift Package Manager |
+| SPM Test | `make spm-test` | `mise run spm-test` | Run tests with Swift Package Manager |
+| Release | `make release` | — | Build universal macOS binary for distribution |
+| Help | `make help` | — | Show all available commands |
 
 ---
 
@@ -586,27 +664,36 @@ Add a **Run Script** build phase that runs before the test target compiles:
 ## Architecture
 
 ```
-Sources/
-  CLI/
-    CLI.swift                           # Command-line entry point (ArgumentParser)
-  SwiftGeneratorKit/
-    Models/
-      MockPattern.swift                 # mainActor | nonisolated | actor
-      ProtocolMetadata.swift            # Protocol, Method, Parameter, Property metadata
-    Parser/
-      ProtocolParser.swift              # SwiftSyntax visitor — extracts annotated protocols
-    Generator/
-      CodeBuilder.swift                 # Indented source code builder (shared utility)
-      MockEmitter.swift                 # MockEmitter protocol + shared emission helpers
-      ClassMockEmitter.swift            # Emitter for mainActor and nonisolated patterns
-      ActorMockEmitter.swift            # Emitter for actor pattern
-      SwiftGenerator.swift              # Mock generator orchestrator
-    FileSystem/
-      FileSystem.swift                  # FileSystem protocol + DefaultFileSystem
-Tests/
-  SwiftGeneratorKitTests/
-    ProtocolParserTests.swift           # Parser tests (Swift Testing)
-    SwiftGeneratorTests.swift           # Generator tests (Swift Testing)
+SwiftGenerator/
+  Package.swift                           # SPM package definition
+  Project.swift                           # Tuist project definition
+  Tuist.swift                             # Tuist configuration
+  mise.toml                               # Tool management (Tuist 4)
+  Makefile                                # Unified command interface
+  scripts/
+    bootstrap.sh                          # First-time setup script
+    build-release.sh                      # Universal binary build script
+  Sources/
+    CLI/
+      CLI.swift                           # Command-line entry point (ArgumentParser)
+    SwiftGeneratorKit/
+      Models/
+        MockPattern.swift                 # mainActor | nonisolated | actor
+        ProtocolMetadata.swift            # Protocol, Method, Parameter, Property metadata
+      Parser/
+        ProtocolParser.swift              # SwiftSyntax visitor — extracts annotated protocols
+      Generator/
+        CodeBuilder.swift                 # Indented source code builder (shared utility)
+        MockEmitter.swift                 # MockEmitter protocol + shared emission helpers
+        ClassMockEmitter.swift            # Emitter for mainActor and nonisolated patterns
+        ActorMockEmitter.swift            # Emitter for actor pattern
+        SwiftGenerator.swift              # Mock generator orchestrator
+      FileSystem/
+        FileSystem.swift                  # FileSystem protocol + DefaultFileSystem
+  Tests/
+    SwiftGeneratorKitTests/
+      ProtocolParserTests.swift           # Parser tests (Swift Testing)
+      SwiftGeneratorTests.swift           # Generator tests (Swift Testing)
 ```
 
 ### Design Principles
@@ -666,7 +753,11 @@ let generator = SwiftGenerator(
 ## Testing
 
 ```bash
-swift test
+# With SPM
+make spm-test
+
+# With Tuist
+make test
 ```
 
 The test suite uses the [Swift Testing](https://developer.apple.com/documentation/testing) framework and covers:
@@ -695,4 +786,4 @@ These are ideas, not commitments. Contributions and suggestions for new generato
 
 ## License
 
-[Add your license here]
+This project is licensed under the [MIT License](LICENSE).
