@@ -14,7 +14,7 @@ let packageSettings = PackageSettings(
 
 import PackageDescription
 
-let binaryChecksum = "PLACEHOLDER"
+let binaryChecksum = "401949b1cd64369b4790a1c68baa2412400c4c8545263da8389ca50ab0b0ea6e"
 
 var products: [Product] = [
 	.executable(name: "swift-generator", targets: ["SwiftGeneratorCLI"]),
@@ -69,7 +69,7 @@ if binaryChecksum != "PLACEHOLDER" {
 	targets.append(
 		.binaryTarget(
 			name: "SwiftGeneratorBinary",
-			url: "https://github.com/vjr2005/SwiftGenerator/releases/download/0.0.1/swift-generator.artifactbundle.zip",
+			url: "https://github.com/vjr2005/SwiftGenerator/releases/download/1.0.0/swift-generator.artifactbundle.zip",
 			checksum: binaryChecksum
 		)
 	)
